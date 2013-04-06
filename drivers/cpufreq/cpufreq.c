@@ -739,12 +739,12 @@ static ssize_t show_UV_mV_table(struct cpufreq_policy *policy, char *buf)
  
 static ssize_t show_cpuinfo_max_mV(struct cpufreq_policy *policy, char *buf)
 {
-    sprintf(buf, "%u\n", CPUMVMAX);
+    return sprintf(buf, "%u\n", CPUMVMAX);
 }
  
 static ssize_t show_cpuinfo_min_mV(struct cpufreq_policy *policy, char *buf)
 {
-    sprintf(buf, "%u\n", CPUMVMIN);
+    return sprintf(buf, "%u\n", CPUMVMIN);
 }
  
 static ssize_t store_UV_mV_table(struct cpufreq_policy *policy, char *buf, size_t count)
@@ -1075,6 +1075,7 @@ static int cpufreq_add_dev(struct sys_device *sys_dev)
 	unsigned int cpu = sys_dev->id;
 	int ret = 0, found = 0;
 	struct cpufreq_policy *policy;
+	struct cpufreq_policy *cp;
 	unsigned long flags;
 	unsigned int j;
 #ifdef CONFIG_HOTPLUG_CPU
@@ -1127,7 +1128,7 @@ static int cpufreq_add_dev(struct sys_device *sys_dev)
 
 	/* Set governor before ->init, so that driver could check it */
 #ifdef CONFIG_HOTPLUG_CPU
-    struct cpufreq_policy *cp;
+
 	for_each_online_cpu(sibling) {
 		cp = per_cpu(cpufreq_cpu_data, sibling);
 		if (cp && cp->governor &&

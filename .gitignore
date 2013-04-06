@@ -84,4 +84,8 @@ GTAGS
 *.patch
 feature.list
 features.list
+*.list
+*.oc
+*.nonoc
+*.gitignore
 \#*#
