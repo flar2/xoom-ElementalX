@@ -145,6 +145,8 @@ static inline void rcu_exit_nohz(void)
 #include <linux/rcutree.h>
 #elif defined(CONFIG_TINY_RCU) || defined(CONFIG_TINY_PREEMPT_RCU)
 #include <linux/rcutiny.h>
+#elif defined(CONFIG_JRCU)
+#include <linux/jrcu.h>
 #else
 #error "Unknown RCU implementation specified to kernel configuration"
 #endif
@@ -796,5 +798,59 @@ static inline void debug_rcu_head_unqueue(struct rcu_head *head)
 {
 }
 #endif	/* #else !CONFIG_DEBUG_OBJECTS_RCU_HEAD */
+
+static __always_inline bool __is_kfree_rcu_offset(unsigned long offset)
+{
+	return offset < 4096;
+}
+
+static __always_inline
+void __kfree_rcu(struct rcu_head *head, unsigned long offset)
+{
+	typedef void (*rcu_callback)(struct rcu_head *);
+
+	BUILD_BUG_ON(!__builtin_constant_p(offset));
+
+	/* See the comments of kfree_rcu(), the "Note:" section. */
+	BUILD_BUG_ON(!__is_kfree_rcu_offset(offset));
+
+	call_rcu(head, (rcu_callback)offset);
+}
+
+extern void kfree(const void *);
+
+static inline void __rcu_reclaim(struct rcu_head *head)
+{
+	unsigned long offset = (unsigned long)head->func;
+
+	if (__is_kfree_rcu_offset(offset))
+		kfree((void *)head - offset);
+	else
+		head->func(head);
+}
+
+/**
+ * kfree_rcu() - kfree an object after a grace period.
+ * @ptr:	pointer to kfree
+ * @rcu_head:	the name of the struct rcu_head within the type of @ptr.
+ *
+ * Many rcu callbacks just call kfree() on the base structure. This helper
+ * function calls kfree internally. The rcu_head structure must be embedded
+ * in the to be freed structure.
+ *
+ * It is different from call_rcu(), kfree_rcu() does not require nor create
+ * any local RCU callback functions belong to its module. So the caller
+ * does not need to wait the callback to complete when the caller want to
+ * unload the module.
+ *
+ * Note: if the offset of the struct rcu_head within the type of @ptr
+ * is larger than 4096, it will trigger a BUILD_BUG_ON() compile-time
+ * error in __kfree_rcu(), the user of kfree_rcu() should rerange the
+ * fields of the type of @ptr to make the offset smaller or use call_rcu()
+ * instead or require the RCU maintainer changing the limit
+ * in this situation.
+ */
+#define kfree_rcu(ptr, rcu_head)					\
+	__kfree_rcu(&((ptr)->rcu_head), offsetof(typeof(*(ptr)), rcu_head))
 
 #endif /* __LINUX_RCUPDATE_H */
