@@ -47,7 +47,7 @@ static unsigned int x_lo;
 static unsigned int x_hi;
 static unsigned int y_lo;
 static unsigned int y_hi;
-bool s2w_enabled = true;
+int s2w_enabled = 1;
 
 void sweep2wake_setdev(struct input_dev * input_device) {
 	sweep2wake_pwrdev = input_device;
@@ -955,7 +955,7 @@ static int do_touch_multi_msg(struct qtouch_ts_data *ts, struct qtm_object *obj,
 	input_sync(ts->input_dev);
 
 	/** s2w **/
-	if (s2w_enabled && num_fingers_down == 1) {
+	if (((s2w_enabled == 1 && num_fingers_down == 1) || (s2w_enabled == 2 && num_fingers_down == 2)) && ((msg->status & QTM_TOUCH_MULTI_STATUS_PRESS) || (msg->status & QTM_TOUCH_MULTI_STATUS_MOVE))) {
 			if ( x < x_lo) {	
 				wake_start_x = 1;
 			}
@@ -976,7 +976,7 @@ static int do_touch_multi_msg(struct qtouch_ts_data *ts, struct qtm_object *obj,
 		sleep_start_x = 0;
 		sleep_start_y = 0;
 	}
-	
+
 	if ((sleep_start_x == 1 && x < x_lo) || (sleep_start_y == 1 && y < y_lo))
 	{
 		wake_start_x = 0;
@@ -993,7 +993,7 @@ static int do_touch_multi_msg(struct qtouch_ts_data *ts, struct qtm_object *obj,
 		sleep_start_y = 0;
 		sweep2wake_pwrtrigger();
 	}
-
+	
 	return 0;
 }
 
@@ -1675,24 +1675,19 @@ static DEVICE_ATTR(fw_version, 0644, qtouch_fw_version, NULL);
 static ssize_t sweep2wake_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%d\n", s2w_enabled);
+	size_t count = 0;
+	count += sprintf(buf, "%d\n", s2w_enabled);
+	return count;
 }
 
 static ssize_t sweep2wake_store(struct device *dev,
 				   struct device_attribute *attr,
-				   const char *buf, size_t size)
+				   const char *buf, size_t count)
 {
-	int ret;
-	unsigned int value;
-
-	ret = sscanf(buf, "%d\n", &value);
-
-	if (ret != 1)
-		return -EINVAL;
-	else
-		s2w_enabled = value ? true : false;
-
-	return size;
+	if (buf[0] >= '0' && buf[0] <= '2' && buf[1] == '\n')
+                if (s2w_enabled != buf[0] - '0')
+			s2w_enabled = buf[0] - '0';
+	return count;	
 }
 
 static DEVICE_ATTR(sweep2wake, (S_IWUSR|S_IRUGO), sweep2wake_show, sweep2wake_store);
@@ -2023,14 +2018,14 @@ static int qtouch_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 	}
 
 	/** s2w **/
-	if (s2w_enabled)	
+	if (s2w_enabled > 0)	
 		enable_irq_wake(ts->client->irq);
 	else {
 		if (ts->enable_irq_flag)
 			disable_irq(ts->client->irq);
 	}
 
-	if (!s2w_enabled) {
+	if (s2w_enabled == 0) {
 		ret = qtouch_power_config(ts, 0);
 		if (ret < 0)
 			pr_err("%s: Cannot write power config\n", __func__);
@@ -2109,7 +2104,7 @@ static int qtouch_ts_resume(struct i2c_client *client)
 	}
 
 	/** s2w **/
-	if (s2w_enabled)
+	if (s2w_enabled > 0)
 		disable_irq_wake(ts->client->irq);
 	else {
 		enable_irq(ts->client->irq);
