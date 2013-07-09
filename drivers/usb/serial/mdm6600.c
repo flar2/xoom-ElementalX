@@ -126,13 +126,33 @@ static void mdm6600_wake_work(struct work_struct *work)
 	struct mdm6600_port *modem = container_of(dwork, struct mdm6600_port,
 						wake_work);
 	struct usb_interface *intf = modem->serial->interface;
+	struct usb_device *udev = interface_to_usbdev(intf);
 	long ret;
 
 	dbg("%s: port %d", __func__, modem->number);
 
+	/*
+	* We check again since device state could have changed by the time
+	* the delayed work gets scheduled.
+	*/
+	if (udev->state == USB_STATE_NOTATTACHED) {
+		pr_err("%s: device has disconnected\n", __func__);
+		return;
+	}
+
 	device_lock(&intf->dev);
 
 	/* Don't proceed until we're awake enough to unsuspend */
+	if (intf->dev.power.is_suspended) {
+		device_unlock(&intf->dev);
+		if (printk_ratelimit())
+			pr_debug("%s: pm state %d, retry..\n",
+				__func__, intf->dev.power.is_suspended);
+		wake_lock_timeout(&modem->readlock, HZ);
+		queue_delayed_work(system_nrt_wq, &modem->wake_work, msecs_to_jiffies(20));
+		return;
+	}
+
 	pr_info("%s: Call usb_autopm\n", __func__);
 	usb_mark_last_busy(modem->serial->dev);
 	ret = usb_autopm_get_interface(intf);
