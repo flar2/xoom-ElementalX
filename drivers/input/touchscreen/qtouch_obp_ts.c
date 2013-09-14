@@ -3,6 +3,8 @@
  *
  * Copyright (C) 2009 Google, Inc.
  * Copyright (C) 2009-2010 Motorola, Inc.
+ * Sweep2wake and Doubletap2wake for Motorola Xoom
+ * Copyright (C) 2012-2013 Aaron Segaert  < asegaert at gmail.com >
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -39,15 +41,40 @@
 
 static struct input_dev *sweep2wake_pwrdev;
 static DEFINE_MUTEX(s2w_lock);
-static unsigned int wake_start_x = 0;
-static unsigned int wake_start_y = 0;
-static unsigned int sleep_start_x = 1280;
-static unsigned int sleep_start_y = 800;
-static unsigned int x_lo;
-static unsigned int x_hi;
-static unsigned int y_lo;
-static unsigned int y_hi;
-int s2w_enabled = 1;
+static unsigned int wake_hl = 0;
+static unsigned int wake_hr = 0;
+static unsigned int wake_vb = 0;
+static unsigned int wake_vt = 0;
+static unsigned int sleep_hl = 0;
+static unsigned int sleep_hr = 0;
+static unsigned int sleep_vb = 0;
+static unsigned int sleep_vt = 0;
+static unsigned int x_lo = 128;
+static unsigned int x_hi = 2440;
+static unsigned int y_lo = 80;
+static unsigned int y_hi = 1533;
+static int s2w_enabled = 1;
+static int dt2w_enabled = 1;
+static int shortsweep_enabled = 0;
+static bool scr_suspended = false;
+static unsigned long dt2w_time[2] = {0, 0};
+static unsigned int dt2w_x[2] = {0, 0};
+static unsigned int dt2w_y[2] = {0, 0};
+#define DT2W_TIMEOUT_MAX 20
+#define DT2W_TIMEOUT_MIN 4
+#define DT2W_DELTA 150
+
+
+	/** s2w 
+	abs_max_x = 2569
+	abs_max_y  = 1614
+	x_lo = ts->pdata->abs_max_x / 20;		 //5% display width 
+	x_hi = (ts->pdata->abs_max_x / 20) * 19;	// 95% display width 
+	y_lo = ts->pdata->abs_max_y / 20;		// 5% display width 
+	y_hi = (ts->pdata->abs_max_y / 20) * 19;	// 95% display width 
+	s2w end **/
+
+
 
 void sweep2wake_setdev(struct input_dev * input_device) {
 	sweep2wake_pwrdev = input_device;
@@ -80,6 +107,60 @@ void sweep2wake_pwrtrigger(void)
 	}
 }
 
+static void s2w_reset(void)
+{
+	wake_hl = 0;
+	wake_hr = 0;
+	wake_vb = 0;
+	wake_vt = 0;
+	sleep_hl = 0;
+	sleep_hr = 0;
+	sleep_vb = 0;
+	sleep_vt = 0;
+}
+
+static void dt2w_reset(void)
+{
+        dt2w_time[0] = 0;
+        dt2w_time[1] = 0;
+
+        dt2w_x[0] = 0;
+        dt2w_x[1] = 0;
+        dt2w_y[0] = 0;
+        dt2w_y[1] = 0;
+}
+
+static void dt2w_func(int x, int y)
+{
+	int delta_x = 0;
+	int delta_y = 0;
+
+	//printk("x=%d y=%d time=%lu\n", x, y, jiffies);
+
+    	dt2w_time[1] = dt2w_time[0];
+	dt2w_time[0] = jiffies;
+
+	dt2w_x[1] = dt2w_x[0];
+	dt2w_x[0] = x;
+	dt2w_y[1] = dt2w_y[0];
+	dt2w_y[0] = y;
+
+	delta_x = (dt2w_x[0]-dt2w_x[1]);
+	delta_y = (dt2w_y[0]-dt2w_y[1]);
+
+	if (scr_suspended) {
+		if (
+			((dt2w_time[0]-dt2w_time[1]) > DT2W_TIMEOUT_MIN)
+			&& ((dt2w_time[0]-dt2w_time[1]) < DT2W_TIMEOUT_MAX)
+			&& (abs(delta_x) < DT2W_DELTA)
+			&& (abs(delta_y) < DT2W_DELTA)
+			) {
+			dt2w_reset();	
+	        	sweep2wake_pwrtrigger();
+		}
+	}
+        return;	
+}
 /** end s2w defs **/
 
 struct qtm_object {
@@ -955,45 +1036,67 @@ static int do_touch_multi_msg(struct qtouch_ts_data *ts, struct qtm_object *obj,
 	input_sync(ts->input_dev);
 
 	/** s2w **/
-	if (((s2w_enabled == 1 && num_fingers_down == 1) || (s2w_enabled == 2 && num_fingers_down == 2)) && ((msg->status & QTM_TOUCH_MULTI_STATUS_PRESS) || (msg->status & QTM_TOUCH_MULTI_STATUS_MOVE))) {
-			if ( x < x_lo) {	
-				wake_start_x = 1;
-			}
-			if (y < y_lo) {
-				wake_start_y = 1;
-			}
-			if ( x > x_hi) {	
-				sleep_start_x = 1;
-			}
-			if (y > y_hi) {
-				sleep_start_y = 1;
-			}
+	if ((s2w_enabled > 0 && num_fingers_down == 1) 
+		&& ((msg->status & QTM_TOUCH_MULTI_STATUS_PRESS) || (msg->status & QTM_TOUCH_MULTI_STATUS_MOVE))) {
+
+		printk("x=%d y=%d\n", x, y);
+
+		if (scr_suspended && s2w_enabled == 1) { 
+			//r->l
+			if (x > x_hi)
+				wake_hl = 1;	
+			//l->r
+			if (x < x_lo)
+				wake_hr = 1;	
+			//t->b
+			if (y < y_lo)
+				wake_vb = 1;	
+			//b->t
+			if (y > y_hi)
+				wake_vt = 1;	
+		}
+		
+		if (!scr_suspended) { 
+			//r->l bottom
+			if ((y > 1540 || y < 90) && x > x_hi)
+				sleep_hl = 1;	
+			//l->r top
+			if ((y > 1540 || y < 90) && x < x_lo)
+				sleep_hr = 1;	
+			//t->b
+			if ((x > 2520 || x < 90) && y < y_lo)
+				sleep_vb = 1;	
+			//b->t
+			if ((x > 2500 || x < 90) && y > y_hi)
+				sleep_vt = 1;	
+		}
 	}
 	else
 	{
-		wake_start_x = 0;
-		wake_start_y = 0;
-		sleep_start_x = 0;
-		sleep_start_y = 0;
+		s2w_reset();
 	}
 
-	if ((sleep_start_x == 1 && x < x_lo) || (sleep_start_y == 1 && y < y_lo))
-	{
-		wake_start_x = 0;
-		wake_start_y = 0;
-		sleep_start_x = 0;
-		sleep_start_y = 0;
-		sweep2wake_pwrtrigger();
+
+	if ((wake_hl == 1 && x < x_lo) || (wake_hr == 1 && x > x_hi) 
+		|| (wake_vb == 1 && y > y_hi) || (wake_vt == 1 && y < y_lo)) {
+			s2w_reset();
+			sweep2wake_pwrtrigger();
 	}
-	if ((wake_start_x == 1 && x > x_hi) || (wake_start_y == 1 && y > y_hi))
-	{
-		wake_start_x = 0;
-		wake_start_y = 0;
-		sleep_start_x = 0;
-		sleep_start_y = 0;
-		sweep2wake_pwrtrigger();
+
+	if ((((sleep_hl == 1 && x < x_lo) || (sleep_hr == 1 && x > x_hi)) && (y > 1540 || y < 90))
+		|| (((sleep_vb == 1 && y > y_hi) || (sleep_vt == 1 && y < y_lo)) && (x > 2500 || x < 90))) {
+			s2w_reset();
+			sweep2wake_pwrtrigger();
+	}
+
+
+	//doubletap2wake
+	if (scr_suspended && dt2w_enabled == 1 && num_fingers_down == 1 && (msg->status & QTM_TOUCH_MULTI_STATUS_PRESS)) {
+		dt2w_func(x, y);	
 	}
 	
+	/** end s2w **/
+
 	return 0;
 }
 
@@ -1692,6 +1795,60 @@ static ssize_t sweep2wake_store(struct device *dev,
 
 static DEVICE_ATTR(sweep2wake, (S_IWUSR|S_IRUGO), sweep2wake_show, sweep2wake_store);
 
+static ssize_t shortsweep_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	size_t count = 0;
+	count += sprintf(buf, "%d\n", shortsweep_enabled);
+	return count;
+}
+
+static ssize_t shortsweep_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
+                if (shortsweep_enabled != buf[0] - '0')
+			shortsweep_enabled = buf[0] - '0';
+
+	if (shortsweep_enabled) {
+		x_lo = 700;
+		x_hi = 1850;
+		y_lo = 350;
+ 		y_hi = 1250;
+	} else {
+		x_lo = 128;
+		x_hi = 2440;
+		y_lo = 80;
+ 		y_hi = 1533;
+	}
+
+	return count;	
+}
+
+static DEVICE_ATTR(shortsweep, (S_IWUSR|S_IRUGO), shortsweep_show, shortsweep_store);
+
+static ssize_t doubletap2wake_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	size_t count = 0;
+	count += sprintf(buf, "%d\n", dt2w_enabled);
+	return count;
+}
+
+static ssize_t doubletap2wake_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	if (buf[0] >= '0' && buf[0] <= '1' && buf[1] == '\n')
+                if (dt2w_enabled != buf[0] - '0')
+			dt2w_enabled = buf[0] - '0';
+	return count;	
+}
+
+static DEVICE_ATTR(doubletap2wake, (S_IWUSR|S_IRUGO), doubletap2wake_show, doubletap2wake_store);
+
+
 static struct kobject *android_touch_kobj;
 
 /** s2w sysfs end **/
@@ -1933,6 +2090,18 @@ finish_touch_setup:
 		printk(KERN_ERR "%s: sysfs_create_file failed\n", __func__);
 		return ret;
 	}
+	
+		ret = sysfs_create_file(android_touch_kobj, &dev_attr_shortsweep.attr);
+	if (ret) {
+		printk(KERN_ERR "%s: sysfs_create_file failed\n", __func__);
+		return ret;
+	}
+	
+		ret = sysfs_create_file(android_touch_kobj, &dev_attr_doubletap2wake.attr);
+	if (ret) {
+		printk(KERN_ERR "%s: sysfs_create_file failed\n", __func__);
+		return ret;
+	}
 	/** s2w end **/
 
 	ts->regulator = regulator_get(&ts->client->dev, "vio");
@@ -1945,13 +2114,6 @@ finish_touch_setup:
 	ts->early_suspend.resume = qtouch_ts_late_resume;
 	register_early_suspend(&ts->early_suspend);
 #endif
-
-	/** s2w **/
-	x_lo = ts->pdata->abs_max_x / 20;		/* 5% display width */
-	x_hi = (ts->pdata->abs_max_x / 20) * 19;	/* 95% display width */
-	y_lo = ts->pdata->abs_max_y / 20;		/* 5% display width */
-	y_hi = (ts->pdata->abs_max_y / 20) * 19;	/* 95% display width */
-	/** s2w end **/
 
 	return 0;
 
@@ -1987,6 +2149,8 @@ static int qtouch_ts_remove(struct i2c_client *client)
 
 	/** s2w **/
 	sysfs_remove_file(android_touch_kobj, &dev_attr_sweep2wake.attr);
+	sysfs_remove_file(android_touch_kobj, &dev_attr_shortsweep.attr);
+	sysfs_remove_file(android_touch_kobj, &dev_attr_doubletap2wake.attr);
 	kobject_del(android_touch_kobj);
 	/** s2w end **/
 
@@ -2011,21 +2175,21 @@ static int qtouch_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 	if (ts->mode == 1)
 		return -EBUSY;
 
-	ret = cancel_work_sync(&ts->work);
-	if (ret) { /* if work was pending disable-count is now 2 */
-		pr_info("%s: Pending work item\n", __func__);
-		enable_irq(ts->client->irq);
-	}
-
 	/** s2w **/
-	if (s2w_enabled > 0)	
+	if (s2w_enabled == 1 || dt2w_enabled == 1)	
 		enable_irq_wake(ts->client->irq);
 	else {
 		if (ts->enable_irq_flag)
 			disable_irq(ts->client->irq);
 	}
 
-	if (s2w_enabled == 0) {
+	ret = cancel_work_sync(&ts->work);
+	if (ret) { /* if work was pending disable-count is now 2 */
+		pr_info("%s: Pending work item\n", __func__);
+		enable_irq(ts->client->irq);
+	}
+	
+	if ((s2w_enabled == 0 || s2w_enabled == 2) && !dt2w_enabled) {
 		ret = qtouch_power_config(ts, 0);
 		if (ret < 0)
 			pr_err("%s: Cannot write power config\n", __func__);
@@ -2037,6 +2201,7 @@ static int qtouch_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 	if (!IS_ERR_OR_NULL(ts->regulator))
 		regulator_disable(ts->regulator);
 
+	scr_suspended = true;	
 	return 0;
 }
 
@@ -2076,41 +2241,45 @@ static int qtouch_ts_resume(struct i2c_client *client)
 	input_mt_sync(ts->input_dev);
 	input_sync(ts->input_dev);
 
-	ret = qtouch_power_config(ts, 1);
-	if (ret == -EIO) {
-		pr_err("%s: Couldn't write power config. Resetting touch ic and retrying..\n", __func__);
-		qtouch_force_reset(ts, 0);
+	
+	if ((s2w_enabled == 0 || s2w_enabled == 2 ) && !dt2w_enabled) {
 		ret = qtouch_power_config(ts, 1);
-	}
-	if (ret < 0) {
-		pr_err("%s: Cannot write power config\n", __func__);
-		ts->enable_irq_flag = 0;
-		return -EIO;
-	}
-	ret = qtouch_force_calibration(ts);
-	if (ret != 0) {
-		pr_err("%s: Unable to recalibrate after power config\n", __func__);
-		return ret;
-	}
+		if (ret == -EIO) {
+			pr_err("%s: Couldn't write power config. Resetting touch ic and retrying..\n", __func__);
+			qtouch_force_reset(ts, 0);
+			ret = qtouch_power_config(ts, 1);
+		}
+		if (ret < 0) {
+			pr_err("%s: Cannot write power config\n", __func__);
+			ts->enable_irq_flag = 0;
+			return -EIO;
+		}
+		ret = qtouch_force_calibration(ts);
+		if (ret != 0) {
+			pr_err("%s: Unable to recalibrate after power config\n", __func__);
+			return ret;
+		}
 
-	/* Point the address pointer to the message processor.
-	 * Must do this before enabling interrupts */
-	obj = find_obj(ts, QTM_OBJ_GEN_MSG_PROC);
-	ret = qtouch_set_addr(ts, obj->entry.addr);
-	if (ret != 0) {
-		pr_err("%s: Can't to set addr to msg processor\n", __func__);
-		ts->enable_irq_flag = 0;
-		return -EIO;
+		/* Point the address pointer to the message processor.
+		* Must do this before enabling interrupts */
+		obj = find_obj(ts, QTM_OBJ_GEN_MSG_PROC);
+		ret = qtouch_set_addr(ts, obj->entry.addr);
+		if (ret != 0) {
+			pr_err("%s: Can't to set addr to msg processor\n", __func__);
+			ts->enable_irq_flag = 0;
+			return -EIO;
+		}
 	}
 
 	/** s2w **/
-	if (s2w_enabled > 0)
+	if (s2w_enabled == 1 || dt2w_enabled == 1)
 		disable_irq_wake(ts->client->irq);
 	else {
 		enable_irq(ts->client->irq);
 		ts->enable_irq_flag = 1;
 	}
 
+	scr_suspended = false;
 	return 0;
 }
 
