@@ -36,13 +36,6 @@
 
 #include <mach/hardware.h>
 #include <mach/clk.h>
-#include <linux/earlysuspend.h> 
-
-/*maxscroff*/
-unsigned int maxscroff_freq = 456000;
-unsigned int old_max = 0;
-static DEFINE_MUTEX(early_mutex); 
-/*end maxscroff*/
 
 /*
  * Frequency table index must be sequential starting at 0 and frequencies
@@ -61,7 +54,7 @@ static struct cpufreq_frequency_table freq_table[] = {
 	{ 9, 1408000 },
 	{ 10, 1504000 },
 	{ 11, 1600000 },
-	{ 12, 1700000 },
+	{ 12, 1704000 },
 	{ 13, CPUFREQ_TABLE_END },
 };
 
@@ -243,10 +236,10 @@ static int tegra_update_cpu_speed(unsigned long rate)
 	 */
 	if (rate >= 816000)
 		clk_set_rate(emc_clk, 600000000); /* cpu 816 MHz, emc max */
-	else if (rate >= 312000)
+	else if (rate >= 456000)
 		clk_set_rate(emc_clk, 300000000); /* cpu 456 MHz, emc 150Mhz */
 	else
-		clk_set_rate(emc_clk, 50000000);  /* emc 25Mhz */
+		clk_set_rate(emc_clk, 100000000);  /* emc 50Mhz */
 
 	get_online_cpus();
 
@@ -300,45 +293,6 @@ out:
 	mutex_unlock(&tegra_cpu_lock);
 	return ret;
 }
-
-
-/*maxscroff*/
-static void tegra_cpu_early_suspend(struct early_suspend *h) 
-{
-	struct cpufreq_policy *policy;
-
-	mutex_lock(&early_mutex); 
-
-	if (num_online_cpus() > 1)
-		cpu_down(1);
-	policy = cpufreq_cpu_get(0);
-	old_max = policy->max;
-	policy->max = maxscroff_freq;
-	printk(KERN_INFO "[Maxscroff]: Limited freq to '%u'\n", maxscroff_freq);
-
-	mutex_unlock(&early_mutex); 
-}
-
-static void tegra_cpu_late_resume(struct early_suspend *h) 
-{
-	struct cpufreq_policy *policy;
-
-	mutex_lock(&early_mutex); 
-	if (num_online_cpus() < 2) 
-		cpu_up(1);
-	policy = cpufreq_cpu_get(0);
-	policy->max = old_max;
-	printk(KERN_INFO "[Maxscroff]: Restoring freq to '%u'\n", old_max);
-
-	mutex_unlock(&early_mutex); 
-}
-
-static struct early_suspend tegra_cpu_early_suspend_handler = { 
-	.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN, 
-	.suspend = tegra_cpu_early_suspend, 
-	.resume = tegra_cpu_late_resume, 
-};
-/*end maxscroff*/
 
 
 static int tegra_pm_notify(struct notifier_block *nb, unsigned long event,
@@ -438,7 +392,6 @@ static int __init tegra_cpufreq_init(void)
 		return -ENOMEM;
 	INIT_DELAYED_WORK(&throttle_work, tegra_throttle_work_func);
 #endif
-	register_early_suspend(&tegra_cpu_early_suspend_handler);
 	return cpufreq_register_driver(&tegra_cpufreq_driver);
 }
 
