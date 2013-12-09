@@ -1666,10 +1666,12 @@ out:
 int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state)
 {
 	int ret = 0;
+	struct mmc_host *mmc = host->mmc;
 
 	sdhci_disable_card_detection(host);
 
-	ret = mmc_suspend_host(host->mmc);
+	if (mmc->card)
+		ret = mmc_suspend_host(host->mmc);
 
 	if (ret) {
 		sdhci_enable_card_detection(host);
@@ -1692,6 +1694,7 @@ EXPORT_SYMBOL_GPL(sdhci_suspend_host);
 int sdhci_resume_host(struct sdhci_host *host)
 {
 	int ret = 0;
+	struct mmc_host *mmc = host->mmc;
 
 	if (host->vmmc) {
 		int ret = regulator_enable(host->vmmc);
@@ -1711,7 +1714,8 @@ int sdhci_resume_host(struct sdhci_host *host)
 	sdhci_init(host, (host->mmc->pm_flags & MMC_PM_KEEP_POWER));
 	mmiowb();
 
-	ret = mmc_resume_host(host->mmc);
+	if (mmc->card)
+		ret = mmc_resume_host(host->mmc);
 
 	sdhci_enable_card_detection(host);
 
@@ -1983,11 +1987,13 @@ int sdhci_add_host(struct sdhci_host *host)
 	} else {
 		mmc->max_blk_size = (caps & SDHCI_MAX_BLOCK_MASK) >>
 				SDHCI_MAX_BLOCK_SHIFT;
+#ifndef CONFIG_MMC_SDHCI_NATIVE_BLOCKSIZE
 		if (mmc->max_blk_size >= 3) {
 			printk(KERN_WARNING "%s: Invalid maximum block size, "
 				"assuming 512 bytes\n", mmc_hostname(mmc));
 			mmc->max_blk_size = 0;
 		}
+#endif
 	}
 
 	mmc->max_blk_size = 512 << mmc->max_blk_size;
@@ -1996,6 +2002,12 @@ int sdhci_add_host(struct sdhci_host *host)
 	 * Maximum block count.
 	 */
 	mmc->max_blk_count = (host->quirks & SDHCI_QUIRK_NO_MULTIBLOCK) ? 1 : 65535;
+
+#ifdef CONFIG_MMC_SDHCI_NATIVE_BLOCKSIZE
+	printk(KERN_INFO "%s: mss %u mrs %u mbs %u mbc %u\n", mmc_hostname(mmc),
+		mmc->max_seg_size, mmc->max_req_size, mmc->max_blk_size,
+		mmc->max_blk_count);
+#endif
 
 	/*
 	 * Init tasklets.
