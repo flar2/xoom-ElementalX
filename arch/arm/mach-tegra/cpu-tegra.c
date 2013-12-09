@@ -37,6 +37,8 @@
 #include <mach/hardware.h>
 #include <mach/clk.h>
 
+static bool startup = true;
+
 /*
  * Frequency table index must be sequential starting at 0 and frequencies
  * must be ascending.
@@ -346,6 +348,11 @@ static int tegra_cpu_init(struct cpufreq_policy *policy)
 
 	if (policy->cpu == 0) {
 		register_pm_notifier(&tegra_cpu_pm_notifier);
+	}
+
+	if (startup) {
+		policy->max = 1000000;
+		startup = false;
 	}
 
 	return 0;
