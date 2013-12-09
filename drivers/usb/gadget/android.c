@@ -1105,7 +1105,7 @@ field ## _store(struct device *dev, struct device_attribute *attr,	\
 		const char *buf, size_t size)				\
 {									\
 	if (size >= sizeof(buffer)) return -EINVAL;			\
-	return strlcpy(buffer, buf, sizeof(buffer));			\					\
+	return strlcpy(buffer, buf, sizeof(buffer));			\
 }									\
 static DEVICE_ATTR(field, S_IRUGO | S_IWUSR, field ## _show, field ## _store);
 
@@ -1370,3 +1370,4 @@ static void __exit cleanup(void)
 	_android_dev = NULL;
 }
 module_exit(cleanup);
+
