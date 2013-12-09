@@ -39,13 +39,10 @@
 #include <linux/earlysuspend.h> 
 
 /*maxscroff*/
-unsigned int old_max = 1;
 unsigned int maxscroff_freq = 456000;
-bool maxscroff = true;
+unsigned int old_max = 0;
 static DEFINE_MUTEX(early_mutex); 
 /*end maxscroff*/
-
-static bool startup = true;
 
 /*
  * Frequency table index must be sequential starting at 0 and frequencies
@@ -310,34 +307,30 @@ static void tegra_cpu_early_suspend(struct early_suspend *h)
 {
 	struct cpufreq_policy *policy;
 
-	if (maxscroff) {
-		mutex_lock(&early_mutex); 
+	mutex_lock(&early_mutex); 
 
-		if (num_online_cpus() > 1)
-			cpu_down(1);
-		policy = cpufreq_cpu_get(0);
-		old_max = policy->max;
-		policy->max = maxscroff_freq;
-		printk(KERN_INFO "[Maxscroff]: Limited freq to '%u'\n", maxscroff_freq);
-	
-		mutex_unlock(&early_mutex); 
-	}
+	if (num_online_cpus() > 1)
+		cpu_down(1);
+	policy = cpufreq_cpu_get(0);
+	old_max = policy->max;
+	policy->max = maxscroff_freq;
+	printk(KERN_INFO "[Maxscroff]: Limited freq to '%u'\n", maxscroff_freq);
+
+	mutex_unlock(&early_mutex); 
 }
 
 static void tegra_cpu_late_resume(struct early_suspend *h) 
 {
 	struct cpufreq_policy *policy;
 
-	if (maxscroff) {
-		mutex_lock(&early_mutex); 
-		if (num_online_cpus() < 2) 
-			cpu_up(1);
-		policy = cpufreq_cpu_get(0);
-		policy->max = old_max;
-		printk(KERN_INFO "[Maxscroff]: Restoring freq to '%u'\n", old_max);
+	mutex_lock(&early_mutex); 
+	if (num_online_cpus() < 2) 
+		cpu_up(1);
+	policy = cpufreq_cpu_get(0);
+	policy->max = old_max;
+	printk(KERN_INFO "[Maxscroff]: Restoring freq to '%u'\n", old_max);
 
-		mutex_unlock(&early_mutex); 
-	}
+	mutex_unlock(&early_mutex); 
 }
 
 static struct early_suspend tegra_cpu_early_suspend_handler = { 
@@ -401,11 +394,6 @@ static int tegra_cpu_init(struct cpufreq_policy *policy)
 		register_pm_notifier(&tegra_cpu_pm_notifier);
 	}
 
-	if (startup) {
-		policy->max = 1000000;
-		startup = false;
-	}
-
 	return 0;
 }
 
@@ -418,89 +406,11 @@ static int tegra_cpu_exit(struct cpufreq_policy *policy)
 	return 0;
 }
 
-
-/* maxscroff  */
-
-static ssize_t show_max_screen_off_khz(struct cpufreq_policy *policy, char *buf)
-{
-	return sprintf(buf, "%u\n", maxscroff_freq);
-}
-
-static ssize_t store_max_screen_off_khz(struct cpufreq_policy *policy,
-		const char *buf, size_t count)
-{
-	unsigned int freq = 0;
-	int ret;
-	int index;
-
-	ret = sscanf(buf, "%u", &freq);
-	if (ret != 1)
-		return -EINVAL;
-
-	mutex_lock(&early_mutex);
-	ret = cpufreq_frequency_table_target(policy, freq_table, freq,
-			CPUFREQ_RELATION_H, &index);
-	if (ret)
-		goto out;
-
-	maxscroff_freq = freq_table[index].frequency;
-
-	ret = count;
-
-out:
-	mutex_unlock(&early_mutex);
-	return ret;
-}
-
-struct freq_attr cpufreq_attr_max_screen_off_khz = {
-	.attr = { .name = "screen_off_max_freq",
-		.mode = 0644,
-	},
-	.show = show_max_screen_off_khz,
-	.store = store_max_screen_off_khz,
-};
-
-static ssize_t show_max_screen_off_enabled(struct cpufreq_policy *policy, char *buf)
-{
-	return sprintf(buf, "%d\n", maxscroff);
-}
-
-static ssize_t store_max_screen_off_enabled(struct cpufreq_policy *policy,
-		const char *buf, size_t size)
-{
-        int ret;
-	unsigned int value;
-
-	ret = sscanf(buf, "%d\n", &value); 
-
-	if (ret != 1)
-		return -EINVAL; 
-        else 
-		maxscroff = value ? true : false; 
-
-        return size;
-}
-
-struct freq_attr cpufreq_attr_max_screen_off_enabled = {
-	.attr = { .name = "screen_off_max_enabled",
-		.mode = 0644,
-	},
-	.show = show_max_screen_off_enabled,
-	.store = store_max_screen_off_enabled,
-};
-
-
-/* end maxscroff */
-
 static struct freq_attr *tegra_cpufreq_attr[] = {
 	&cpufreq_freq_attr_scaling_available_freqs,
 #ifdef CONFIG_TEGRA_THERMAL_THROTTLE
 	&throttle,
 #endif
-/* maxscroff */
-	&cpufreq_attr_max_screen_off_khz,
-	&cpufreq_attr_max_screen_off_enabled,
-/* end maxscroff */
 	NULL,
 };
 
@@ -528,7 +438,6 @@ static int __init tegra_cpufreq_init(void)
 		return -ENOMEM;
 	INIT_DELAYED_WORK(&throttle_work, tegra_throttle_work_func);
 #endif
-
 	register_early_suspend(&tegra_cpu_early_suspend_handler);
 	return cpufreq_register_driver(&tegra_cpufreq_driver);
 }
