@@ -60,9 +60,9 @@ static bool scr_suspended = false;
 static unsigned long dt2w_time[2] = {0, 0};
 static unsigned int dt2w_x[2] = {0, 0};
 static unsigned int dt2w_y[2] = {0, 0};
-#define DT2W_TIMEOUT_MAX 20
-#define DT2W_TIMEOUT_MIN 4
-#define DT2W_DELTA 150
+#define DT2W_TIMEOUT_MAX 40
+#define DT2W_TIMEOUT_MIN 0
+#define DT2W_DELTA 300
 
 
 	/** s2w 
@@ -119,23 +119,12 @@ static void s2w_reset(void)
 	sleep_vt = 0;
 }
 
-static void dt2w_reset(void)
-{
-        dt2w_time[0] = 0;
-        dt2w_time[1] = 0;
-
-        dt2w_x[0] = 0;
-        dt2w_x[1] = 0;
-        dt2w_y[0] = 0;
-        dt2w_y[1] = 0;
-}
-
 static void dt2w_func(int x, int y)
 {
 	int delta_x = 0;
 	int delta_y = 0;
 
-	//printk("x=%d y=%d time=%lu\n", x, y, jiffies);
+	printk("x=%d y=%d time=%lu\n", x, y, jiffies);
 
     	dt2w_time[1] = dt2w_time[0];
 	dt2w_time[0] = jiffies;
@@ -149,14 +138,13 @@ static void dt2w_func(int x, int y)
 	delta_y = (dt2w_y[0]-dt2w_y[1]);
 
 	if (scr_suspended) {
-		if (
-			((dt2w_time[0]-dt2w_time[1]) > DT2W_TIMEOUT_MIN)
+		if (	((dt2w_time[0]-dt2w_time[1]) > DT2W_TIMEOUT_MIN)
 			&& ((dt2w_time[0]-dt2w_time[1]) < DT2W_TIMEOUT_MAX)
 			&& (abs(delta_x) < DT2W_DELTA)
-			&& (abs(delta_y) < DT2W_DELTA)
-			) {
-			dt2w_reset();	
-	        	sweep2wake_pwrtrigger();
+			&& (abs(delta_y) < DT2W_DELTA)	) {
+	        		dt2w_time[0] = 0;
+			        dt2w_time[1] = 0;	
+		        	sweep2wake_pwrtrigger();
 		}
 	}
         return;	
