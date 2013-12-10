@@ -88,10 +88,10 @@ static void sweep2wake_presspwr(struct work_struct *sweep2wake_presspwr_work)
 	pr_alert("SWEEP2WAKE_PRESSPWR");
 		input_event(sweep2wake_pwrdev, EV_KEY, KEY_END, 1);
 		input_event(sweep2wake_pwrdev, EV_SYN, 0, 0);
-		msleep(20);
+		msleep(60);
 		input_event(sweep2wake_pwrdev, EV_KEY, KEY_END, 0);
 		input_event(sweep2wake_pwrdev, EV_SYN, 0, 0);
-		msleep(20);
+		msleep(60);
 	mutex_unlock(&s2w_lock);
 }
 
