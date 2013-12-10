@@ -341,11 +341,10 @@ CHECK		= sparse
 
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
-MODFLAGS  = -DMODULE -marm -mtune=cortex-a9 -march=armv7-a -mfpu=vfpv3-d16 -mthumb-interwork 
-CFLAGS_MODULE   = $(MODFLAGS)
-AFLAGS_MODULE   = $(MODFLAGS)
+CFLAGS_MODULE   = -mcpu=cortex-a9 -mtune=cortex-a9 -mfpu=vfpv3-d16 -ftree-vectorize -mfloat-abi=hard -ffast-math --param l2-cache-size=1024 --param l1-cache-size=32 --param l1-cache-line-size=128 -ftree-vectorize -funswitch-loops -floop-block -floop-strip-mine
+AFLAGS_MODULE   = 
 LDFLAGS_MODULE  = -T $(srctree)/scripts/module-common.lds
-CFLAGS_KERNEL  = -marm -mtune=cortex-a9 -march=armv7-a -mfpu=vfpv3-d16 -mthumb-interwork 
+CFLAGS_KERNEL   = -mcpu=cortex-a9 -mtune=cortex-a9 -mfpu=vfpv3-d16 -ftree-vectorize -mfloat-abi=hard -ffast-math --param l2-cache-size=1024 --param l1-cache-size=32 --param l1-cache-line-size=128 -ftree-vectorize -funswitch-loops -floop-block -floop-strip-mine
 AFLAGS_KERNEL	=
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
 
