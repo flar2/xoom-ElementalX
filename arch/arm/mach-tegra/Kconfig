@@ -150,6 +150,10 @@ config TEGRA_IOVMM_GART
 	  shared with the operating system into contiguous I/O virtual
 	  space through the GART hardware included on Tegra SoCs
 
+config TEGRA2_GPUOC
+	bool "Overclock the 3d GPU clock by 100mhz to 400mhz."
+	default y
+
 config TEGRA_IOVMM
 	bool
 
