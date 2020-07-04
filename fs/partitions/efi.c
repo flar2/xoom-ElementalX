@@ -652,41 +652,6 @@ int efi_partition(struct parsed_partitions *state)
 		if (!is_pte_valid(&ptes[i], last_lba(state->bdev)))
 			continue;
 
-#define MB169  0x054800
-#define MB256  0x080000
-#define MB512  0x100000
-#define MB768  0x180000
-#define MB1024 0x200000
-
-#define WINGRAY_SYSTEM_START   0x1D000
-#define WINGRAY_CACHE_START    0x9D000
-#define WINGRAY_USERDATA_START 0xF1800
-
-#define EVEREST_SYSTEM_START   0x1E000
-#define EVEREST_CACHE_START    0x9E000
-#define EVEREST_USERDATA_START 0xF2800
-
-#define SYSTEM_SIZE MB256
-#define CACHE_SIZE  MB169
-
-		if (start == WINGRAY_SYSTEM_START || start == EVEREST_SYSTEM_START)
-		{
-			printk("Fixing up system part\n");
-			size = MB1024;
-		}
-		else if (start == WINGRAY_CACHE_START || start == EVEREST_CACHE_START)
-		{
-			printk("Fixing up cache part\n");
-			start += MB1024 - SYSTEM_SIZE;
-			size   = MB512;
-		}
-		else if (start == WINGRAY_USERDATA_START || start == EVEREST_USERDATA_START)
-		{
-			printk("Fixing up userdata part\n");
-			start += (MB1024 - SYSTEM_SIZE) + (MB512 - CACHE_SIZE);
-			size  -= (MB1024 - SYSTEM_SIZE) + (MB512 - CACHE_SIZE);
-		}
-
 		put_partition(state, i+1, start * ssz, size * ssz);
 
 		/* If this is a RAID volume, tell md */
@@ -712,10 +677,6 @@ int efi_partition(struct parsed_partitions *state)
 			info->volname[label_count] = c;
 			label_count++;
 		}
-
-		printk("     %12s 0x%010llx - 0x%010llx = %10lu (0x%010llx)\n",
-			info->volname, start, (start + size), size, size);
-
 		state->parts[i + 1].has_info = true;
 	}
 	kfree(ptes);
